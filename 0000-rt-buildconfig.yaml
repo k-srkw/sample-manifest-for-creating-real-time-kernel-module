@@ -1,0 +1,69 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  labels:
+    app: simple-rt-kmod-driver-container
+  name: simple-rt-kmod-driver-container
+  namespace: simple-rt-kmod-demo
+spec: {}
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  labels:
+    app: simple-rt-kmod-driver-build
+  name: simple-rt-kmod-driver-build
+  namespace: simple-rt-kmod-demo
+spec:
+  nodeSelector:
+    node-role.kubernetes.io/worker: ""
+  runPolicy: "Serial"
+  triggers:
+    - type: "ConfigChange"
+    - type: "ImageChange"
+  source:
+    git:
+      ref: "master"
+      uri: "https://github.com/openshift-psap/kvc-simple-kmod.git"
+    type: Git
+    dockerfile: |
+      FROM quay.io/openshift-release-dev/ocp-v4.0-art-dev@sha256:e91556ee956ba40a94f00603fb80531afc04122b6a6334422f50057867f8f231
+
+      WORKDIR /build/
+
+      RUN yum -y install git make sudo gcc \
+      && yum clean all \
+      && rm -rf /var/cache/dnf
+
+      # Expecting kmod software version as an input to the build
+      ARG KMODVER
+
+      # Grab the software from upstream
+      RUN git clone https://github.com/k-srkw/simple-kmod.git
+      WORKDIR simple-kmod
+
+      # Prep and build the module
+      RUN make buildprep KVER=$(rpm -q --qf "%{VERSION}-%{RELEASE}.%{ARCH}"  kernel-rt-core) KMODVER=${KMODVER} \
+      && make all       KVER=$(rpm -q --qf "%{VERSION}-%{RELEASE}.%{ARCH}"  kernel-rt-core) KMODVER=${KMODVER} \
+      && make install   KVER=$(rpm -q --qf "%{VERSION}-%{RELEASE}.%{ARCH}"  kernel-rt-core) KMODVER=${KMODVER}
+
+      # Add the helper tools
+      WORKDIR /root/kvc-simple-kmod
+      ADD Makefile .
+      ADD simple-kmod-lib.sh .
+      ADD simple-kmod-wrapper.sh .
+      ADD simple-kmod.conf .
+      RUN mkdir -p /usr/lib/kvc/ \
+      && mkdir -p /etc/kvc/ \
+      && make install
+
+      RUN systemctl enable kmods-via-containers@simple-kmod
+  strategy:
+    dockerStrategy:
+      buildArgs:
+        - name: KMODVER
+          value: DEMO
+  output:
+    to:
+      kind: ImageStreamTag
+      name: simple-rt-kmod-driver-container:demo

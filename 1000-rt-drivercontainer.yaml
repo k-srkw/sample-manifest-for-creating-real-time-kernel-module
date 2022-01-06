@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: simple-rt-kmod-driver-container
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: simple-rt-kmod-driver-container
+rules:
+- apiGroups:
+  - security.openshift.io
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+  resourceNames:
+  - privileged
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: simple-rt-kmod-driver-container
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: simple-rt-kmod-driver-container
+subjects:
+- kind: ServiceAccount
+  name: simple-rt-kmod-driver-container
+userNames:
+- system:serviceaccount:simple-rt-kmod-demo:simple-rt-kmod-driver-container
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: simple-rt-kmod-driver-container
+spec:
+  selector:
+    matchLabels:
+      app: simple-rt-kmod-driver-container
+  template:
+    metadata:
+      labels:
+        app: simple-rt-kmod-driver-container
+    spec:
+      serviceAccount: simple-rt-kmod-driver-container
+      serviceAccountName: simple-rt-kmod-driver-container
+      containers:
+      - image: image-registry.openshift-image-registry.svc:5000/simple-rt-kmod-demo/simple-rt-kmod-driver-container:demo
+        name: simple-rt-kmod-driver-container
+        imagePullPolicy: Always
+        command: ["/sbin/init"]
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "systemctl stop kmods-via-containers@simple-kmod"]
+        securityContext:
+          privileged: true
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
